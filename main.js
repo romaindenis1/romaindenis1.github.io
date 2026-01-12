@@ -1,19 +1,42 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 var flagtext = document.getElementById("flagtext");
+var timertext = document.getElementById("timertext");
 
-let gridSize = 10;  // Default Easy
+let gridSize = 15;  // Default Medium
 let cellSize = canvas.width / gridSize;
 let grid = [];
-let mineAmount = 10; // Default for easy
+let mineAmount = 40; // Default for medium
 let flaggedCount = 0; // Track flagged cells
+let revealedCount = 0; // Track revealed cells for win condition
 
 let firstClick = true;
 let firstClickPosition = null;
 const flagImage = new Image();
 flagImage.src = "./Images/flag.png";
 
-/////////////////////////////////////////////////////TODO : Make firstclick logic work on hard and insane difficulties/////////////////////////////////////////////////////////////
+let gameOver = false;
+let gameWon = false;
+let animations = []; // Store active animations: { row, col, startTime, duration, type: 'reveal'|'press' }
+
+let timerInterval;
+let startTime;
+
+// Initialize the game loop
+function gameLoop() {
+    updateAnimations();
+    drawGrid();
+    requestAnimationFrame(gameLoop);
+}
+
+// Update animation states
+function updateAnimations() {
+    const now = Date.now();
+    animations = animations.filter(anim => {
+        const elapsed = now - anim.startTime;
+        return elapsed < anim.duration;
+    });
+}
 
 // Makes grid
 function initializeGrid() {
@@ -24,11 +47,12 @@ function initializeGrid() {
             grid[row][col] = {
                 value: 0,
                 revealed: false,
-                flagged: false
+                flagged: false,
+                scale: 1 // For animation
             };
         }
     }
-    
+
     placeMines();
     calculateTiles();
 }
@@ -63,17 +87,40 @@ function drawGrid() {
             let x = colIndex * cellSize;
             let y = rowIndex * cellSize;
 
+            // Handle Animation Scale
+            let scale = 1;
+            const anim = animations.find(a => a.row === rowIndex && a.col === colIndex);
+            if (anim) {
+                const now = Date.now();
+                const progress = (now - anim.startTime) / anim.duration;
+                // Simple "press" curve: down then up
+                if (progress < 0.5) {
+                    scale = 1 - (progress * 0.2); // Go down to 0.9
+                } else {
+                    scale = 0.9 + ((progress - 0.5) * 0.2); // Go back to 1
+                }
+            }
+
+            // Save context for scaling
+            ctx.save();
+            // Translate to center of cell
+            ctx.translate(x + cellSize / 2, y + cellSize / 2);
+            ctx.scale(scale, scale);
+            // Translate back to top-left of cell (relative to the translated origin, it is -cellSize/2)
+            const drawX = -cellSize / 2;
+            const drawY = -cellSize / 2;
+
             // Styles for revealed cells
             if (cell.revealed) {
                 if (cell.value === 9) {
                     ctx.fillStyle = 'red';  // Mine 
-                } 
+                }
                 else if ((rowIndex + colIndex) % 2 === 0) {
-                    ctx.fillStyle = '#C3B59F';  
+                    ctx.fillStyle = '#C3B59F';
                 } else {
                     ctx.fillStyle = '#A57F60';
                 }
-            
+
             } else {
                 // Alternate colors for unrevealed cells
                 if ((rowIndex + colIndex) % 2 === 0) {
@@ -83,7 +130,7 @@ function drawGrid() {
                 }
             }
 
-            ctx.fillRect(x, y, cellSize, cellSize);
+            ctx.fillRect(drawX, drawY, cellSize, cellSize);
 
             // Center numbers for revealed cells
             if (cell.revealed && cell.value !== 0) {
@@ -91,18 +138,71 @@ function drawGrid() {
                 ctx.font = 'bold 16px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(cell.value, x + cellSize / 2, y + cellSize / 2);
+                ctx.fillText(cell.value, 0, 0); // At center (0,0) because of translate
             }
 
             // Draw flag
             if (cell.flagged) {
-                ctx.drawImage(flagImage, x + cellSize / 4, y + cellSize / 4, cellSize / 2, cellSize / 2);
+                ctx.drawImage(flagImage, drawX + cellSize / 4, drawY + cellSize / 4, cellSize / 2, cellSize / 2);
             }
+
+            // Restore context
+            ctx.restore();
         });
     });
 
+    // Game Over Overlay
+    if (gameOver) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
+
+        ctx.font = '24px Arial';
+        ctx.fillText('Press R to Restart', canvas.width / 2, canvas.height / 2 + 50);
+    }
+
+    // Win Overlay
+    if (gameWon) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#4CAF50'; // Greenish
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('YOU WIN!', canvas.width / 2, canvas.height / 2);
+
+        ctx.font = '24px Arial';
+        ctx.fillText('Press R to Restart', canvas.width / 2, canvas.height / 2 + 50);
+    }
+
     // Update the flag count display
     flagtext.innerHTML = `${mineAmount - flaggedCount}`;
+}
+
+// Timer Functions
+function startTimer() {
+    startTime = Date.now();
+    timerInterval = setInterval(updateTimer, 1000);
+}
+
+function updateTimer() {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    timertext.innerHTML = elapsed;
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+}
+
+function resetTimer() {
+    stopTimer();
+    timertext.innerHTML = "0";
 }
 
 // Difficulty handler
@@ -135,8 +235,7 @@ document.getElementById('difficulty').addEventListener('change', (event) => {
     flagtext.appendChild(flagwords);
     cellSize = canvas.width / gridSize;
 
-    initializeGrid(); // Reset grid
-    drawGrid();
+    initializeGame();
 });
 
 // Random mines
@@ -202,8 +301,30 @@ function calculateTiles() {
 
 // Reveal cell function
 function revealCell(row, col) {
-    if (grid[row][col].revealed || grid[row][col].flagged) return;  // Don't reveal flagged cells
+    if (gameOver || gameWon || grid[row][col].flagged) return; // Cannot reveal if game over, won, or flagged
+
+    // Add "press" animation
+    animations.push({
+        row: row,
+        col: col,
+        startTime: Date.now(),
+        duration: 150 // 150ms press
+    });
+
+
+    if (grid[row][col].revealed) return;
+
     grid[row][col].revealed = true;
+
+    if (grid[row][col].value === 9) {
+        // Mine hit!
+        triggerGameOver();
+        return;
+    }
+
+    // Safe cell revealed
+    revealedCount++;
+    checkWin();
 
     if (grid[row][col].value === 0) {
         // Reveal neighboring cells if empty (no number or mine)
@@ -212,12 +333,45 @@ function revealCell(row, col) {
                 const newRow = row + i;
                 const newCol = col + j;
                 if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
-                    revealCell(newRow, newCol);
+                    if (!grid[newRow][newCol].revealed) {
+                        revealCell(newRow, newCol);
+                    }
                 }
             }
         }
     }
-    drawGrid();
+}
+
+function checkWin() {
+    const totalCells = gridSize * gridSize;
+    const totalSafeCells = totalCells - mineAmount;
+
+    if (revealedCount === totalSafeCells) {
+        gameWon = true;
+        stopTimer();
+        // Identify any unflagged mines and flag them (visual polish)
+        grid.forEach(row => {
+            row.forEach(cell => {
+                if (cell.value === 9 && !cell.flagged) {
+                    cell.flagged = true;
+                }
+            });
+        });
+        flaggedCount = mineAmount; // Set flag count to max
+    }
+}
+
+function triggerGameOver() {
+    gameOver = true;
+    stopTimer();
+    // Reveal all mines
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell.value === 9) {
+                cell.revealed = true;
+            }
+        });
+    });
 }
 
 // Setup
@@ -225,14 +379,21 @@ function initializeGame() {
     firstClick = true;
     firstClickPosition = null;
     flaggedCount = 0; // Reset the flag count
+    revealedCount = 0;
+    gameOver = false;
+    gameWon = false;
+    animations = [];
+    resetTimer(); // Reset timer on new game
     initializeGrid();
-    drawGrid();
 }
 
 initializeGame();
+gameLoop(); // Start the loop
 
 // Event listener for left click (reveal cells)
 canvas.addEventListener('click', (event) => {
+    if (gameOver || gameWon) return;
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -244,6 +405,7 @@ canvas.addEventListener('click', (event) => {
     if (firstClick) {
         firstClickPosition = [row, col];
         firstClick = false;
+        startTimer(); // Start timer on first click
         initializeGrid();   // Remake final grid
     }
 
@@ -253,7 +415,9 @@ canvas.addEventListener('click', (event) => {
 // Event listener for right click (flag/unflag cells)
 canvas.addEventListener('contextmenu', (event) => {
     event.preventDefault(); // Prevent right-click menu from appearing
-    
+
+    if (gameOver || gameWon) return;
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -272,13 +436,11 @@ canvas.addEventListener('contextmenu', (event) => {
             cell.flagged = true;
             flaggedCount++;
         }
-        drawGrid();  // Update the grid display
     }
 });
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'r' || event.key === 'R') {
-        firstClick = true;
         initializeGame();
     }
 });
