@@ -15,6 +15,10 @@ let firstClickPosition = null;
 const flagImage = new Image();
 flagImage.src = "./Images/flag.png";
 
+const mineImage = new Image();
+mineImage.src = "./Images/mine.png";
+
+
 let gameOver = false;
 let gameWon = false;
 let animations = []; // Store active animations: { row, col, startTime, duration, type: 'reveal'|'press' }
@@ -134,16 +138,31 @@ function drawGrid() {
 
             // Center numbers for revealed cells
             if (cell.revealed && cell.value !== 0) {
-                ctx.fillStyle = '#fff';
-                ctx.font = 'bold 16px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(cell.value, 0, 0); // At center (0,0) because of translate
+                if (cell.value === 9) {
+                    ctx.drawImage(mineImage, drawX + cellSize * 0.1, drawY + cellSize * 0.1, cellSize * 0.8, cellSize * 0.8);
+                } else {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(cell.value, 0, 0); // At center (0,0) because of translate
+                }
             }
 
             // Draw flag
             if (cell.flagged) {
                 ctx.drawImage(flagImage, drawX + cellSize / 4, drawY + cellSize / 4, cellSize / 2, cellSize / 2);
+
+                if (gameOver && cell.value !== 9) {
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(drawX + cellSize * 0.2, drawY + cellSize * 0.2);
+                    ctx.lineTo(drawX + cellSize * 0.8, drawY + cellSize * 0.8);
+                    ctx.moveTo(drawX + cellSize * 0.8, drawY + cellSize * 0.2);
+                    ctx.lineTo(drawX + cellSize * 0.2, drawY + cellSize * 0.8);
+                    ctx.stroke();
+                }
             }
 
             // Restore context
